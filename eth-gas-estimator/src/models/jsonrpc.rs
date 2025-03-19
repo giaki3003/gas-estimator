@@ -1,6 +1,9 @@
 use std::str::FromStr;
-use alloy_primitives::hex;
-use alloy::primitives::{Address, Bytes, U256};
+use alloy::primitives::{Address, Bytes, U256, B256, hex};
+use alloy::eips::{
+    eip4844::BlobTransactionSidecar,
+    eip7702::{Authorization, SignedAuthorization},
+};
 use serde::{Deserialize, Serialize};
 
 /// JSON-RPC 2.0 request structure
@@ -115,6 +118,26 @@ pub struct EthEstimateGasParams {
     /// Chain ID (optional)
     #[serde(default, rename = "chainId")]
     pub chain_id: Option<String>,
+
+    /// EIP-2930 access list (optional)
+    #[serde(default, rename = "accessList")]
+    pub access_list: Option<Vec<AccessListItemRpc>>,
+
+    /// EIP-2718 transaction type (optional)
+    /// Typically an 8-bit integer in hex or decimal
+    #[serde(default, rename = "type")]
+    pub transaction_type: Option<String>,
+
+    /// EIP-4844 fields
+    #[serde(default, rename = "blobVersionedHashes")]
+    pub blob_versioned_hashes: Option<Vec<String>>,
+
+    #[serde(default)]
+    pub sidecar: Option<BlobTransactionSidecar>,
+
+    /// EIP-7702
+    #[serde(default, rename = "authorizationList")]
+    pub authorization_list: Option<Vec<AuthorizationRpc>>,
 }
 
 impl JsonRpcError {
@@ -222,6 +245,32 @@ pub fn parse_hex_u256(hex: &str) -> Result<U256, String> {
     U256::from_str_radix(hex, 16).map_err(|e| format!("Invalid hex value: {}", e))
 }
 
+/// Parse a hexadecimal string into a 32-byte array or B256.
+///
+/// Expects a string starting with "0x", followed by exactly 64 hex characters.
+/// Returns an error if the length is incorrect or it cannot decode the hex.
+pub fn parse_hex_b256(hex_str: &str) -> Result<B256, String> {
+    // 1) Strip "0x" prefix
+    let hex_str = hex_str
+        .strip_prefix("0x")
+        .ok_or_else(|| "Hex value must start with \"0x\"".to_string())?;
+
+    // 2) Decode into raw bytes
+    let bytes = hex::decode(hex_str)
+        .map_err(|e| format!("Failed to decode hex: {e}"))?;
+
+    // 3) Check for 32 bytes
+    if bytes.len() != 32 {
+        return Err(format!(
+            "Expected 32 bytes (64 hex characters), got {}",
+            bytes.len()
+        ));
+    }
+
+    // 4) Convert into B256 (or [u8; 32])
+    Ok(B256::from_slice(&bytes))
+}
+
 /// Parse a hexadecimal string into a `u64` value.
 ///
 /// Expects a string starting with "0x".
@@ -263,6 +312,14 @@ pub fn parse_hex_bytes(hex: &str) -> Result<Bytes, String> {
     Ok(Bytes::from(data))
 }
 
+pub fn parse_hex_or_dec_u8(s: &str) -> Result<u8, String> {
+    if let Some(stripped) = s.strip_prefix("0x") {
+        u8::from_str_radix(stripped, 16).map_err(|e| format!("Invalid hex: {e}"))
+    } else {
+        u8::from_str_radix(s, 10).map_err(|e| format!("Invalid decimal: {e}"))
+    }
+}
+
 /// Format a `U256` value into a hexadecimal string prefixed with "0x".
 ///
 /// # Arguments
@@ -274,4 +331,59 @@ pub fn parse_hex_bytes(hex: &str) -> Result<Bytes, String> {
 /// * String representation of the value in hexadecimal
 pub fn format_hex_u256(value: U256) -> String {
     format!("0x{:x}", value)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AccessListItemRpc {
+    pub address: String,
+    #[serde(rename = "storageKeys")]
+    pub storage_keys: Vec<String>,  // These hex strings should be parsed into B256 values for Alloy TransactionReceipt
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct AuthorizationRpc {
+    #[serde(rename = "chainId")]
+    pub chain_id: String,       // e.g. "0x1"
+    #[serde(rename = "contractAddress")]
+    pub contract_address: String,
+    pub nonce: String,          // e.g. "0x42" or decimal
+    #[serde(rename = "yParity")]
+    pub y_parity: String,       // "0x0" or "0x1"
+    pub r: String,              // "0x..." 32-byte hex
+    pub s: String,              // "0x..." 32-byte hex
+}
+
+impl AuthorizationRpc {
+    pub fn to_authorization(&self) -> Result<SignedAuthorization, String> {
+        // 1) Parse chain ID as a u64, then wrap in `ChainId`.
+        let chain_id_u256 = parse_hex_u256(&self.chain_id)?;
+
+        // 2) Parse the contract address
+        let contract_address = parse_hex_address(&self.contract_address)?;
+
+        // 3) Parse the nonce
+        let nonce_u64 = parse_hex_u64(&self.nonce)?;
+
+        // 4) Parse yParity (0 or 1)
+        let parity_val = parse_hex_u64(&self.y_parity)?;
+        let y_parity = match parity_val {
+            0 => 0u8,
+            1 => 1u8,
+            _ => return Err("Invalid y_parity, must be 0 or 1".to_string()),
+        };
+
+        // 5) Parse r, s (256-bit hex -> `U256`)
+        let r_val = parse_hex_u256(&self.r)?;
+        let s_val = parse_hex_u256(&self.s)?;
+
+        // 6) Build the "inner" authorization
+        let inner = Authorization {
+            chain_id: chain_id_u256,
+            address: contract_address,
+            nonce: nonce_u64,
+        };
+
+        // 7) Finally, call `new_unchecked`
+        Ok(SignedAuthorization::new_unchecked(inner, y_parity, r_val, s_val))
+    }
 }

@@ -9,7 +9,7 @@ use alloy::{
 };
 use eyre::Result;
 use std::sync::Arc;
-use tracing::{debug, instrument};
+use tracing::{debug, instrument, error};
 
 /// Gas unit constants
 pub const GWEI: u64 = 1_000_000_000;
@@ -64,32 +64,8 @@ impl GasEstimator {
                 Ok(gas)
             },
             Err(e) => {
-                debug!("Simulation failed with error: {}", e);
-                debug!("Falling back to default gas limit handling");
-
-                // Determine if this is a simple transfer (no input data) or a contract interaction
-                let is_simple_transfer = if tx_request.input.data.is_none() {
-                    debug!("No input data found; treating as simple transfer");
-                    true
-                } else if tx_request.input.data.as_ref().map_or(true, |d| d.is_empty()) {
-                    debug!("Input data is empty; treating as simple transfer");
-                    true
-                } else {
-                    debug!("Input data present; non-simple transfer detected");
-                    false
-                };
-
-                // For simple transfers, use the default gas limit (21,000)
-                // For contract interactions, return an error
-                if is_simple_transfer {
-                    let default_gas = U256::from(DEFAULT_GAS_LIMIT);
-                    debug!("Using default gas limit: {}", default_gas);
-                    Ok(default_gas)
-                } else {
-                    let error_msg = "Failed to estimate gas for non-simple transfer";
-                    debug!("{}", error_msg);
-                    Err(ServiceError::EstimationError("Failed to estimate gas".to_string()).into())
-                }
+                error!("Simulation failed with error: {}", e);
+                Err(ServiceError::EstimationError("Failed to estimate gas".to_string()).into())
             }
         }
     }

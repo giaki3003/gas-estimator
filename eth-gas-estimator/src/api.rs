@@ -5,7 +5,7 @@ use crate::{
     models:: {
         jsonrpc::{
             JsonRpcRequest, JsonRpcSuccess, JsonRpcError, EthEstimateGasParams,
-            parse_hex_address, parse_hex_u256, parse_hex_bytes, format_hex_u256, parse_hex_u64
+            parse_hex_address, parse_hex_u256, parse_hex_bytes, format_hex_u256, parse_hex_u64, parse_hex_b256, parse_hex_or_dec_u8
         }
     }
 };
@@ -15,9 +15,83 @@ use actix_web::{
 use std::sync::Arc;
 use tracing::{error, info};
 use alloy::{
-    primitives::{Bytes, U256},
+    primitives::{Bytes, U256, B256},
     rpc::types::{TransactionInput, TransactionRequest},
+    eips::{
+        eip2930::{AccessList, AccessListItem},
+    }
 };
+
+fn format_estimate_gas_params(params: &EthEstimateGasParams) -> String {
+    let mut lines = Vec::new();
+
+    if let Some(ref from) = params.from {
+        lines.push(format!("from: {from}"));
+    }
+    if let Some(ref to) = params.to {
+        lines.push(format!("to: {to}"));
+    }
+    if let Some(ref gas) = params.gas {
+        lines.push(format!("gas: {gas}"));
+    }
+    if let Some(ref gas_price) = params.gas_price {
+        lines.push(format!("gas_price: {gas_price}"));
+    }
+    if let Some(ref max_fee) = params.max_fee_per_gas {
+        lines.push(format!("max_fee_per_gas: {max_fee}"));
+    }
+    if let Some(ref max_priority) = params.max_priority_fee_per_gas {
+        lines.push(format!("max_priority_fee_per_gas: {max_priority}"));
+    }
+    if let Some(ref value) = params.value {
+        lines.push(format!("value: {value}"));
+    }
+    if let Some(ref input) = params.input {
+        lines.push(format!("input: {input}"));
+    }
+    if let Some(ref block) = params.block {
+        lines.push(format!("block: {block}"));
+    }
+    if let Some(ref nonce) = params.nonce {
+        lines.push(format!("nonce: {nonce}"));
+    }
+    if let Some(ref chain_id) = params.chain_id {
+        lines.push(format!("chainId: {chain_id}"));
+    }
+
+    // EIP-2930 access list
+    if let Some(ref access_list) = params.access_list {
+        // You can decide how much detail to print:
+        // e.g., how many items, or expand them fully.
+        lines.push(format!("accessList: len({})", access_list.len()));
+    }
+
+    // EIP-2718 transaction type
+    if let Some(ref tx_type) = params.transaction_type {
+        lines.push(format!("type: {tx_type}"));
+    }
+
+    // EIP-4844
+    if let Some(ref hashes) = params.blob_versioned_hashes {
+        lines.push(format!("blobVersionedHashes: len({})", hashes.len()));
+    }
+    if let Some(ref sidecar) = params.sidecar {
+        // Decide how to format the sidecar
+        lines.push(format!("sidecar: {sidecar:?}"));
+    }
+
+    // EIP-7702
+    if let Some(ref auth_list) = params.authorization_list {
+        lines.push(format!("authorizationList: len({})", auth_list.len()));
+    }
+
+    // Finally, join or handle the case where no fields were set
+    if lines.is_empty() {
+        "[no fields set]".to_owned()
+    } else {
+        lines.join("\n  ")
+    }
+}
 
 /// Endpoint to estimate gas for Ethereum transactions following the JSON-RPC protocol
 /// This endpoint conforms to the Ethereum JSON-RPC specification for eth_estimateGas
@@ -55,6 +129,10 @@ async fn estimate_gas_jsonrpc(
 
     // Get the transaction parameters from the first element in the params array
     let tx_params = &request.params[0];
+    info!(
+        "Received JSON-RPC params:\n  {}",
+        format_estimate_gas_params(&tx_params)
+    );
 
     // Convert JSON-RPC parameters to a TransactionRequest
     let tx_request = match build_transaction_request(tx_params).await {
@@ -66,36 +144,6 @@ async fn estimate_gas_jsonrpc(
             ));
         }
     };
-
-    // Log the received transaction parameters in a structured format
-    info!(
-        "Received transaction:
-        - from:                     {}
-        - to:                       {}
-        - gas:                      {}
-        - gas_price:                {}
-        - max_fee_per_gas:          {}
-        - max_priority_fee_per_gas: {}
-        - value:                    {}
-        - input:                    {}
-        - block:                    {}
-        - nonce:                    {}
-        - chain_id:                 {}",
-        tx_params.from.as_deref().unwrap_or("None"),
-        tx_params.to.as_deref().unwrap_or("None"),
-        tx_params.gas.as_deref().unwrap_or("None"),
-        tx_params.gas_price.as_deref().unwrap_or("None"),
-        tx_params.max_fee_per_gas.as_deref().unwrap_or("None"),
-        tx_params
-            .max_priority_fee_per_gas
-            .as_deref()
-            .unwrap_or("None"),
-        tx_params.value.as_deref().unwrap_or("None"),
-        tx_params.input.as_deref().unwrap_or("None"),
-        tx_params.block.as_deref().unwrap_or("None"),
-        tx_params.nonce.as_deref().unwrap_or("None"),
-        tx_params.chain_id.as_deref().unwrap_or("None"),
-    );
 
     // Estimate gas using the service
     match estimator.estimate_raw_gas(&tx_request).await {
@@ -280,6 +328,63 @@ async fn build_transaction_request(
     let _block_tag = params.block.as_deref().unwrap_or("latest");
     debug!("Using block tag: {}", _block_tag);
     // Note: block parameter is used to replicate eth spec, but right now we always default to the latest - !TODO: implement arbitrary block requests
+
+    if let Some(access_list_vec) = &params.access_list {
+        let mut items = Vec::new();
+        for entry in access_list_vec {
+            let address = parse_hex_address(&entry.address)?;
+            let storage_keys = entry
+                .storage_keys
+                .iter()
+                .map(|key_str| parse_hex_b256(key_str))
+                .collect::<Result<Vec<B256>, _>>()?;
+            items.push(AccessListItem { address, storage_keys });
+        }
+        tx_request.access_list = Some(AccessList(items.clone()));
+        debug!("Parsed accessList with {} items", items.len());
+    }
+
+    // Transaction type (EIP-2718)
+    if let Some(tx_type_str) = &params.transaction_type {
+        debug!("Parsing transaction type: {}", tx_type_str);
+        let tx_type_u8 = parse_hex_or_dec_u8(tx_type_str)?;
+        tx_request.transaction_type = Some(tx_type_u8);
+        debug!("Parsed transactionType: {}", tx_type_u8);
+    }
+
+    // EIP-4844: blobVersionedHashes
+    if let Some(hashes_rpc) = &params.blob_versioned_hashes {
+        debug!("Parsing blob versioned hashes");
+        let mut hashes = Vec::new();
+        for hash_str in hashes_rpc {
+            let h = parse_hex_b256(hash_str)?;
+            hashes.push(h);
+        }
+        tx_request.blob_versioned_hashes = Some(hashes.clone());
+        debug!("Parsed {} blob versioned hashes", hashes.len());
+    }
+
+    // sidecar
+    if let Some(sidecar_rpc) = &params.sidecar {
+        // Convert from your custom sidecar JSON structure into the `BlobTransactionSidecar`.
+        // Possibly parse big-endian fields, etc. 
+        let sidecar = sidecar_rpc;
+        tx_request.sidecar = Some(sidecar.clone());
+        debug!("Parsed sidecar: {:?}", sidecar);
+    }
+
+    // EIP-7702: authorizationList
+    if let Some(auth_list_rpc) = &params.authorization_list {
+        // Convert each item from the “AuthRpc” to the actual “SignedAuthorization”
+        let mut parsed_auth = Vec::new();
+        for auth_rpc_item in auth_list_rpc {
+            let item = auth_rpc_item.to_authorization()?;
+            parsed_auth.push(item);
+        }
+        tx_request.authorization_list = Some(parsed_auth.clone());
+        debug!("Parsed {} items in authorizationList", parsed_auth.len());
+    }
+
     debug!("Transaction request built: {:?}", tx_request);
     Ok(tx_request)
 }

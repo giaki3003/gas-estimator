@@ -13,7 +13,7 @@ use revm::{
     db::CacheDB,
     primitives::{
         BlockEnv, Bytes as RevmBytes, ExecutionResult, OptimismFields,
-        TransactTo, TxEnv, Address as RevmAddress, U256 as RevmU256, B256 as RevmB256, AccessListItem, AccessList, BlobExcessGasAndPrice,
+        TransactTo, TxEnv, Address as RevmAddress, U256 as RevmU256, B256 as RevmB256, AccessListItem, AccessList, BlobExcessGasAndPrice, AuthorizationList,
     },
     Evm,
 };
@@ -197,57 +197,57 @@ pub async fn estimate_gas_from_request_foundry(
 pub fn convert_tx_request_to_tx_env(request: &TransactionRequest) -> Result<TxEnv, eyre::Error> {
     debug!("Starting conversion of TransactionRequest to TxEnv: {:?}", request);
 
-    // Convert caller/from address
+    // 1) 'from' => caller
     let caller = match request.from {
         Some(addr) => {
             debug!("Using 'from' address: {:?}", addr);
             addr
-        },
+        }
         None => {
             error!("Transaction request missing 'from' field");
             eyre::bail!("Transaction request missing 'from' field")
         }
     };
-    
-    // Convert transaction destination
+
+    // 2) 'to' => TxKind::Call(...) or TxKind::Create
     let transact_to = match request.to {
         Some(tx_kind) => match tx_kind {
             TxKind::Call(addr) => {
                 debug!("Transaction type: Call, destination: {:?}", addr);
                 TransactTo::Call(convert_address(addr))
-            },
+            }
             TxKind::Create => {
                 debug!("Transaction type: Create");
                 TransactTo::Create
-            },
+            }
         },
         None => {
             debug!("Transaction 'to' field missing, defaulting to Create");
             TransactTo::Create
         }
     };
-    
-    // Convert value
+
+    // 3) value
     let value = request.value.unwrap_or_default();
     debug!("Transaction value: {:?}", value);
-    
-    // Handle transaction data properly using the input() method
+
+    // 4) data from request.input
     let data = match request.input.input() {
         Some(bytes) => {
             debug!("Transaction input data found, length: {}", bytes.len());
             convert_bytes(bytes.clone())
-        },
+        }
         None => {
-            debug!("No transaction input data found, using default empty data");
+            debug!("No transaction input data found, using empty Bytes");
             RevmBytes::default()
         }
     };
-    
-    // Convert gas limit
-    let gas_limit = request.gas.unwrap_or(DEFAULT_GAS_LIMIT); // Use a safe default if not specified
+
+    // 5) gas limit
+    let gas_limit = request.gas.unwrap_or(DEFAULT_GAS_LIMIT);
     debug!("Transaction gas limit: {}", gas_limit);
-    
-    // Convert gas price related fields
+
+    // 6) gas pricing
     let gas_price = if let Some(max_fee) = request.max_fee_per_gas {
         debug!("EIP-1559 transaction detected, using max_fee_per_gas: {:?}", max_fee);
         convert_u256(U256::from(max_fee))
@@ -255,30 +255,31 @@ pub fn convert_tx_request_to_tx_env(request: &TransactionRequest) -> Result<TxEn
         debug!("Legacy transaction detected, using gas_price: {:?}", price);
         convert_u256(U256::from(price))
     } else {
+        // default
         debug!("No gas price specified, defaulting to 1 gwei");
         RevmU256::from(GWEI) // 1 gwei
     };
-    
-    // Convert priority fee
+
     let gas_priority_fee = request.max_priority_fee_per_gas.map(|fee| {
         debug!("Using max_priority_fee_per_gas: {:?}", fee);
         convert_u256(U256::from(fee))
     });
-    
-    // Convert access list
+
+    // 7) Access list
     let access_list = match &request.access_list {
-        Some(access_list) => {
-            debug!("Access list provided with {} entries", access_list.len());
-            convert_access_list(access_list)
-        },
+        Some(alist) => {
+            debug!("Access list provided with {} entries", alist.len());
+            convert_access_list(alist)
+        }
         None => {
             debug!("No access list provided, using empty list");
             Vec::new()
-        },
+        }
     };
-    
-    // Convert blob related fields for EIP-4844
-    let blob_hashes = request.blob_versioned_hashes
+
+    // 8) EIP-4844
+    let blob_hashes = request
+        .blob_versioned_hashes
         .clone()
         .unwrap_or_default()
         .into_iter()
@@ -287,19 +288,26 @@ pub fn convert_tx_request_to_tx_env(request: &TransactionRequest) -> Result<TxEn
             convert_b256(hash)
         })
         .collect();
-    
+
     let max_fee_per_blob_gas = request.max_fee_per_blob_gas.map(|fee| {
         debug!("Using max_fee_per_blob_gas: {:?}", fee);
         convert_u256(U256::from(fee))
     });
-    
-    // Handle authorization list for EIP-7702 (future support)
-    let authorization_list = {
-        debug!("No authorization list provided, defaulting to None");
-        None
+
+    // 9) EIP-7702 authorization
+    let authorization_list = match &request.authorization_list {
+        Some(list) => {
+            debug!("Found EIP-7702 authorization list with {} items", list.len());
+            let revm_auth_list = AuthorizationList::Signed(list.to_vec());
+            Some(revm_auth_list)
+        }
+        None => {
+            debug!("No authorization list provided");
+            None
+        }
     };
-    
-    // Construct the TxEnv with all parameters
+
+    // 10) Build the final TxEnv
     let tx_env = TxEnv {
         caller: convert_address(caller),
         gas_limit,
@@ -307,7 +315,7 @@ pub fn convert_tx_request_to_tx_env(request: &TransactionRequest) -> Result<TxEn
         transact_to,
         value: convert_u256(value),
         data,
-        nonce: request.nonce,
+        nonce: request.nonce, // Option<u64>
         chain_id: request.chain_id.map(u64::from),
         access_list,
         gas_priority_fee,
@@ -316,7 +324,7 @@ pub fn convert_tx_request_to_tx_env(request: &TransactionRequest) -> Result<TxEn
         authorization_list,
         optimism: OptimismFields::default(),
     };
-    
+
     debug!("TxEnv conversion complete: {:?}", tx_env);
     Ok(tx_env)
 }
