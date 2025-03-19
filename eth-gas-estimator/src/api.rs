@@ -26,66 +26,57 @@ fn format_estimate_gas_params(params: &EthEstimateGasParams) -> String {
     let mut lines = Vec::new();
 
     if let Some(ref from) = params.from {
-        lines.push(format!("from: {from}"));
+        lines.push(format!("from: {}", from));
     }
     if let Some(ref to) = params.to {
-        lines.push(format!("to: {to}"));
+        lines.push(format!("to: {}", to));
     }
     if let Some(ref gas) = params.gas {
-        lines.push(format!("gas: {gas}"));
+        lines.push(format!("gas: {}", gas));
     }
     if let Some(ref gas_price) = params.gas_price {
-        lines.push(format!("gas_price: {gas_price}"));
+        lines.push(format!("gasPrice: {}", gas_price));
     }
     if let Some(ref max_fee) = params.max_fee_per_gas {
-        lines.push(format!("max_fee_per_gas: {max_fee}"));
+        lines.push(format!("maxFeePerGas: {}", max_fee));
     }
     if let Some(ref max_priority) = params.max_priority_fee_per_gas {
-        lines.push(format!("max_priority_fee_per_gas: {max_priority}"));
+        lines.push(format!("maxPriorityFeePerGas: {}", max_priority));
     }
     if let Some(ref value) = params.value {
-        lines.push(format!("value: {value}"));
+        lines.push(format!("value: {}", value));
     }
     if let Some(ref input) = params.input {
-        lines.push(format!("input: {input}"));
+        lines.push(format!("input: {}", input));
     }
     if let Some(ref block) = params.block {
-        lines.push(format!("block: {block}"));
+        lines.push(format!("block: {}", block));
     }
     if let Some(ref nonce) = params.nonce {
-        lines.push(format!("nonce: {nonce}"));
+        lines.push(format!("nonce: {}", nonce));
     }
     if let Some(ref chain_id) = params.chain_id {
-        lines.push(format!("chainId: {chain_id}"));
+        lines.push(format!("chainId: {}", chain_id));
     }
-
-    // EIP-2930 access list
     if let Some(ref access_list) = params.access_list {
-        // You can decide how much detail to print:
-        // e.g., how many items, or expand them fully.
-        lines.push(format!("accessList: len({})", access_list.len()));
+        lines.push(format!("accessList: {:?}", access_list));
     }
-
-    // EIP-2718 transaction type
     if let Some(ref tx_type) = params.transaction_type {
-        lines.push(format!("type: {tx_type}"));
+        lines.push(format!("type: {}", tx_type));
     }
-
-    // EIP-4844
-    if let Some(ref hashes) = params.blob_versioned_hashes {
-        lines.push(format!("blobVersionedHashes: len({})", hashes.len()));
+    if let Some(ref blob_versioned_hashes) = params.blob_versioned_hashes {
+        lines.push(format!("blobVersionedHashes: {:?}", blob_versioned_hashes));
+    }
+    if let Some(ref max_fee_per_blob_gas) = params.max_fee_per_blob_gas {
+        lines.push(format!("maxFeePerBlobGas: {}", max_fee_per_blob_gas));
     }
     if let Some(ref sidecar) = params.sidecar {
-        // Decide how to format the sidecar
-        lines.push(format!("sidecar: {sidecar:?}"));
+        lines.push(format!("sidecar: {:?}", sidecar));
     }
-
-    // EIP-7702
     if let Some(ref auth_list) = params.authorization_list {
-        lines.push(format!("authorizationList: len({})", auth_list.len()));
+        lines.push(format!("authorizationList: {:?}", auth_list));
     }
 
-    // Finally, join or handle the case where no fields were set
     if lines.is_empty() {
         "[no fields set]".to_owned()
     } else {
@@ -101,7 +92,12 @@ async fn estimate_gas_jsonrpc(
     estimator: web::Data<Arc<GasEstimator>>,
     request: web::Json<JsonRpcRequest<Vec<EthEstimateGasParams>>>,
 ) -> HttpResponse {
-    debug!("Received JSON-RPC gas estimation request from {}", req.peer_addr().unwrap_or_else(|| "unknown".parse().unwrap()));
+    debug!(
+        "Received JSON-RPC gas estimation request from {}",
+        req.peer_addr()
+            .map(|addr| addr.to_string())
+            .unwrap_or_else(|| "unknown".into())
+        );
 
     // Validate JSON-RPC version
     if request.jsonrpc != "2.0" {
@@ -131,7 +127,7 @@ async fn estimate_gas_jsonrpc(
     let tx_params = &request.params[0];
     info!(
         "Received JSON-RPC params:\n  {}",
-        format_estimate_gas_params(&tx_params)
+        format_estimate_gas_params(tx_params)
     );
 
     // Convert JSON-RPC parameters to a TransactionRequest
@@ -187,7 +183,7 @@ async fn health_check(
         }
         Err(e) => {
             error!("Health check failed: {:?}", e);
-            Err(ServiceError::RPCConnectionError(format!("RPC connection error: {}", e)))
+            Err(ServiceError::RPCConnection(format!("RPC connection error: {}", e)))
         }
     }
 }
@@ -298,15 +294,9 @@ async fn build_transaction_request(
         // Use default gas price if none provided
         debug!("No gas pricing provided, defaulting to gas price: {}", DEFAULT_GAS_PRICE);
         let gas_price = DEFAULT_GAS_PRICE;
-        match u128::try_from(gas_price) {
-            Ok(price) => {
-                tx_request.gas_price = Some(price);
-                debug!("Parsed legacy gas price: {}", price);
-            }
-            Err(_) => {
-                debug!("Failed to convert gas price to u128");
-            }
-        }
+        let price = u128::from(gas_price);
+        tx_request.gas_price = Some(price);
+        debug!("Parsed legacy gas price: {}", price);
     }
 
     // Handle additional transaction fields - nonce and chain_id
@@ -357,11 +347,24 @@ async fn build_transaction_request(
         debug!("Parsing blob versioned hashes");
         let mut hashes = Vec::new();
         for hash_str in hashes_rpc {
-            let h = parse_hex_b256(hash_str)?;
+            debug!("Parsing hash: {}", hash_str);
+            let h = parse_hex_b256(hash_str)
+                .map_err(|e| {
+                    debug!("Failed to parse hash {}: {:?}", hash_str, e);
+                    e
+                })?;
             hashes.push(h);
         }
         tx_request.blob_versioned_hashes = Some(hashes.clone());
         debug!("Parsed {} blob versioned hashes", hashes.len());
+    }
+
+    // EIP-4844: maxFeePerBlobGas
+    if let Some(max_fee_blob_rpc) = &params.max_fee_per_blob_gas {
+        debug!("Parsing max fee per blob gas");
+        let max_fee_blob = parse_hex_u64(max_fee_blob_rpc)?;
+        tx_request.max_fee_per_blob_gas = Some(max_fee_blob.into());
+        debug!("Parsed max fee per blob gas: {:?}", max_fee_blob);
     }
 
     // sidecar

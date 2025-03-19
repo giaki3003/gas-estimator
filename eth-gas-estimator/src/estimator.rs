@@ -58,14 +58,14 @@ impl GasEstimator {
         debug!("Starting gas estimation for transaction request: {:?}", tx_request);
 
         // Attempt to estimate gas using local simulation with REVM
-        match estimate_gas_from_request_foundry(&self.rpc_url, &tx_request).await {
+        match estimate_gas_from_request_foundry(&self.rpc_url, tx_request).await {
             Ok(gas) => {
                 debug!("Simulation succeeded, estimated gas: {}", gas);
                 Ok(gas)
             },
             Err(e) => {
                 error!("Simulation failed with error: {}", e);
-                Err(ServiceError::EstimationError("Failed to estimate gas".to_string()).into())
+                Err(ServiceError::Estimation("Failed to estimate gas".to_string()).into())
             }
         }
     }

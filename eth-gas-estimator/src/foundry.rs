@@ -33,7 +33,7 @@ use tracing::{debug, info, error};
 /// * A provider that can be used for blockchain interactions, or an error
 fn build_any_provider(rpc_url: &str) -> Result<impl AlloyProvider<AnyNetwork> + Clone + Unpin + 'static, ServiceError> {
     // Parse the URL and handle errors
-    let parsed = rpc_url.parse().map_err(|e| ServiceError::RPCConnectionError(format!("Bad URL: {e}")))?;
+    let parsed = rpc_url.parse().map_err(|e| ServiceError::RPCConnection(format!("Bad URL: {e}")))?;
 
     // Create a new provider using the AnyNetwork type for flexibility
     let provider = ProviderBuilder::new()
@@ -68,8 +68,8 @@ pub async fn estimate_gas_from_request_foundry(
     let block = provider
         .get_block(alloy::eips::BlockId::Number(BlockNumberOrTag::Latest))
         .await
-        .map_err(|e| ServiceError::RPCConnectionError(format!("Failed to get latest block: {}", e)))?
-        .ok_or_else(|| ServiceError::RPCConnectionError("Failed to get latest block".to_string()))?;
+        .map_err(|e| ServiceError::RPCConnection(format!("Failed to get latest block: {}", e)))?
+        .ok_or_else(|| ServiceError::RPCConnection("Failed to get latest block".to_string()))?;
     debug!("Latest block fetched: number: {:?}, hash: {:?}", block.header.number, block.header.hash);
 
     debug!("Setting up fork at block {}", block.header.number);
@@ -126,7 +126,7 @@ pub async fn estimate_gas_from_request_foundry(
     // Create transaction environment from request
     debug!("Converting transaction request into EVM transaction environment");
     let tx_env = convert_tx_request_to_tx_env(tx_request)
-        .map_err(|e| ServiceError::SimulationError(e.to_string()))?;
+        .map_err(|e| ServiceError::Simulation(e.to_string()))?;
     debug!("Transaction environment configured: {:?}", tx_env);
 
     // Execute the simulation in a blocking task to avoid blocking the async runtime
@@ -148,7 +148,7 @@ pub async fn estimate_gas_from_request_foundry(
             .transact()
             .map_err(|e| {
                 error!("EVM simulation failed: {:?}", e);
-                ServiceError::SimulationError(format!("EVM simulation failed: {:?}", e))
+                ServiceError::Simulation(format!("EVM simulation failed: {:?}", e))
             })?;
 
         // Extract the gas used based on the execution result
@@ -175,7 +175,7 @@ pub async fn estimate_gas_from_request_foundry(
     .await
     .map_err(|e| {
         error!("spawn_blocking task failed: {:?}", e);
-        ServiceError::SimulationError(format!("spawn_blocking failed: {e:?}"))
+        ServiceError::Simulation(format!("spawn_blocking failed: {e:?}"))
     })??;
     
     debug!("Gas estimation completed successfully: {:?}", gas_used);
@@ -316,7 +316,7 @@ pub fn convert_tx_request_to_tx_env(request: &TransactionRequest) -> Result<TxEn
         value: convert_u256(value),
         data,
         nonce: request.nonce, // Option<u64>
-        chain_id: request.chain_id.map(u64::from),
+        chain_id: request.chain_id,
         access_list,
         gas_priority_fee,
         blob_hashes,

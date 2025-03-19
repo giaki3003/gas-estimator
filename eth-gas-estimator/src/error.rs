@@ -8,17 +8,14 @@ use thiserror::Error;
 /// Each variant represents a specific error case and includes relevant details.
 #[derive(Error, Debug)]
 pub enum ServiceError {
-    /// Error connecting to Ethereum RPC node
     #[error("RPC connection error: {0}")]
-    RPCConnectionError(String),
-    
-    /// Error during transaction simulation
+    RPCConnection(String),
+
     #[error("Transaction simulation failed: {0}")]
-    SimulationError(String),
-    
-    /// Error estimating gas for a transaction
+    Simulation(String),
+
     #[error("Gas estimation failed: {0}")]
-    EstimationError(String),
+    Estimation(String),
 }
 
 /// Structured error response for the API
@@ -43,17 +40,17 @@ impl ResponseError for ServiceError {
     /// including status code and a JSON error body.
     fn error_response(&self) -> HttpResponse {
         let (status_code, error_code, details) = match self {
-            ServiceError::RPCConnectionError(details) => (
+            ServiceError::RPCConnection(details) => (
                 StatusCode::BAD_GATEWAY,
                 "RPC_CONNECTION_ERROR",
                 Some(details.clone()),
             ),
-            ServiceError::SimulationError(details) => (
+            ServiceError::Simulation(details) => (
                 StatusCode::BAD_REQUEST,
                 "SIMULATION_ERROR",
                 Some(details.clone()),
             ),
-            ServiceError::EstimationError(details) => (
+            ServiceError::Estimation(details) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "ESTIMATION_ERROR",
                 Some(details.clone()),
@@ -70,9 +67,9 @@ impl ResponseError for ServiceError {
     /// Get the HTTP status code for this error
     fn status_code(&self) -> StatusCode {
         match *self {
-            ServiceError::RPCConnectionError(_) => StatusCode::BAD_GATEWAY,
-            ServiceError::SimulationError(_) => StatusCode::BAD_REQUEST,
-            ServiceError::EstimationError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            ServiceError::RPCConnection(_) => StatusCode::BAD_GATEWAY,
+            ServiceError::Simulation(_) => StatusCode::BAD_REQUEST,
+            ServiceError::Estimation(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }

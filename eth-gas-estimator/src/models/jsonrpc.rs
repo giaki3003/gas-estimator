@@ -132,6 +132,9 @@ pub struct EthEstimateGasParams {
     #[serde(default, rename = "blobVersionedHashes")]
     pub blob_versioned_hashes: Option<Vec<String>>,
 
+    #[serde(default, rename = "maxFeePerBlobGas")]
+    pub max_fee_per_blob_gas: Option<String>,
+
     #[serde(default)]
     pub sidecar: Option<BlobTransactionSidecar>,
 
@@ -207,7 +210,7 @@ impl<T> JsonRpcSuccess<T> {
 }
 
 /// Helper functions to parse hex values from JSON-RPC requests using alloy primitives.
-
+///
 /// Parse a hexadecimal address string into an `Address`.
 ///
 /// Expects a string starting with "0x" and 40 hex digits (20 bytes).
@@ -312,11 +315,23 @@ pub fn parse_hex_bytes(hex: &str) -> Result<Bytes, String> {
     Ok(Bytes::from(data))
 }
 
+/// Parse a decimal/hexadecimal string into a `u8` value.
+///
+/// Expects a string starting with "0x". If the hex string contains no data (i.e. "0x"),
+/// an empty `u` value is returned.
+///
+/// # Arguments
+///
+/// * `hex` - The hexadecimal string
+///
+/// # Returns
+///
+/// * `Result<u8, String>` - Parsed u8 or error message
 pub fn parse_hex_or_dec_u8(s: &str) -> Result<u8, String> {
     if let Some(stripped) = s.strip_prefix("0x") {
         u8::from_str_radix(stripped, 16).map_err(|e| format!("Invalid hex: {e}"))
     } else {
-        u8::from_str_radix(s, 10).map_err(|e| format!("Invalid decimal: {e}"))
+        s.parse::<u8>().map_err(|e| format!("Invalid decimal: {e}"))
     }
 }
 
@@ -344,7 +359,7 @@ pub struct AccessListItemRpc {
 pub struct AuthorizationRpc {
     #[serde(rename = "chainId")]
     pub chain_id: String,       // e.g. "0x1"
-    #[serde(rename = "contractAddress")]
+    #[serde(rename = "address")]
     pub contract_address: String,
     pub nonce: String,          // e.g. "0x42" or decimal
     #[serde(rename = "yParity")]
