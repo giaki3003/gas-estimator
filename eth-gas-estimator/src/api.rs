@@ -198,6 +198,10 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 ///
 /// This function converts the JSON-RPC parameters into an Alloy TransactionRequest,
 /// validating and parsing each field as needed.
+///
+/// While this may seem redundant, its important as I wanted to build this leveraging Alloy
+/// due to the inherent speed and optimisation benefits and the future REVM interoperability.
+///
 async fn build_transaction_request(
     params: &EthEstimateGasParams,
 ) -> Result<TransactionRequest, String> {

@@ -7,6 +7,7 @@ use alloy::{
     primitives::{Address, Bytes, U256, TxKind, B256},
     providers:: { Provider as AlloyProvider, ProviderBuilder },
     rpc::types::{BlockNumberOrTag, TransactionRequest},
+    consensus::BlockHeader,
 };
 use foundry_fork_db::{cache::BlockchainDbMeta, BlockchainDb, SharedBackend};
 use revm::{
@@ -82,7 +83,7 @@ pub async fn estimate_gas_from_request_foundry(
         .with_chain_id(chain_id)
         .with_block(&block);
 
-    // Create a new blockchain database (or reuse from cache)
+    // Create a new blockchain database
     debug!("Initializing blockchain database");
     let db = BlockchainDb::new(meta, None);
 
@@ -96,12 +97,15 @@ pub async fn estimate_gas_from_request_foundry(
     let basefee = block.header.base_fee_per_gas.map(U256::from).unwrap_or_default();
     debug!("Block base fee: {:?}", basefee);
     
+    let gas_limit = U256::from(block.header.gas_limit());
+    debug!("Block gas limit: {:?}", gas_limit);
+
     // Create the block environment from the latest block data
     let block_env = BlockEnv {
         number: convert_u256(U256::from(block.header.number)),
         coinbase: convert_address(block.header.beneficiary),
         timestamp: convert_u256(U256::from(block.header.timestamp)),
-        gas_limit: convert_u256(U256::from(30_000_000)), // High gas limit for simulation
+        gas_limit: convert_u256(gas_limit),
         basefee: convert_u256(basefee),
         prevrandao: {
             let pr = block.header.mix_hash.expect("Block missing randao - are you on some esoteric chain or old pow block?");
@@ -186,6 +190,10 @@ pub async fn estimate_gas_from_request_foundry(
 ///
 /// This function translates between the Alloy and REVM type systems to prepare
 /// a transaction for simulation in the EVM.
+/// 
+/// While this might seem redundant, its important as I am preparing for the REVM 0.20.x rewrite 
+/// which will have a different type system. The conversion *should* be more straightforward
+/// once 0.20.x goes stable, and there are type conversions available on the REVM git already.
 ///
 /// # Arguments
 ///

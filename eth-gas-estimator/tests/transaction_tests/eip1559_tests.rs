@@ -52,10 +52,10 @@ async fn test_eip1559_transaction_estimation_rpc() {
             "from": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
             "to": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
             // EIP-1559 fields (hex encoded values)
-            "maxFeePerGas": "0x4a817c800",       // 20,000,000,000 (20 Gwei)
-            "maxPriorityFeePerGas": "0x77359400",  // 2,000,000,000 (2 Gwei)
-            "value": "0xde0b6b3a7640000",          // 1 ETH
-            "transactionType": "0x2"
+            "maxFeePerGas": "0x4a817c800",          // 20,000,000,000 (20 Gwei)
+            "maxPriorityFeePerGas": "0x77359400",   // 2,000,000,000 (2 Gwei)
+            "value": "0xde0b6b3a7640000",           // 1 ETH
+            "transactionType": "0x2"                // Indicates an EIP-1559 transaction
         }],
         "id": 1
     });

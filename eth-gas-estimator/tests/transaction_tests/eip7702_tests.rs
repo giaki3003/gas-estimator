@@ -63,7 +63,7 @@ async fn test_eip7702_authorization_transaction_rpc() {
                 "r": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 "s": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             }],
-            "transactionType": "0x2"               // Type 2 transaction with an auth list (EIP-7702)
+            "transactionType": "0x4"               // Type 4 transaction with an auth list (EIP-7702)
         }],
         "id": 1
     });

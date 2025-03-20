@@ -22,8 +22,8 @@ pub fn spawn_anvil() -> (Child, String) {
         .arg("-p")
         .arg(port.to_string())
         .arg("--hardfork")
-        .arg("prague") // Necessary for eip7702 tests to succeed
-        // Optionally, redirect stdout and stderr if you need to debug
+        .arg("prague") // Prague is necessary for eip7702 tests to succeed
+        // redirect stdout and stderr so terminal isnt polluted
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
