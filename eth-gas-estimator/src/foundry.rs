@@ -13,7 +13,7 @@ use foundry_fork_db::{cache::BlockchainDbMeta, BlockchainDb, SharedBackend};
 use revm::{
     db::CacheDB,
     primitives::{
-        BlockEnv, Bytes as RevmBytes, ExecutionResult, OptimismFields,
+        BlockEnv, Bytes as RevmBytes, ExecutionResult,
         TransactTo, TxEnv, Address as RevmAddress, U256 as RevmU256, B256 as RevmB256, AccessListItem, AccessList, BlobExcessGasAndPrice, AuthorizationList,
     },
     Evm,
@@ -330,7 +330,6 @@ pub fn convert_tx_request_to_tx_env(request: &TransactionRequest) -> Result<TxEn
         blob_hashes,
         max_fee_per_blob_gas,
         authorization_list,
-        optimism: OptimismFields::default(),
     };
 
     debug!("TxEnv conversion complete: {:?}", tx_env);

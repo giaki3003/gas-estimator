@@ -2,8 +2,4 @@
 members = [
     "eth-gas-estimator",
 ]
-
-exclude = [
-    "foundry"
-]
 resolver = "2"

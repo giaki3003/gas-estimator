@@ -9,7 +9,6 @@ description = "High-performance gas estimation service for Ethereum transactions
 # Web framework
 actix-web = "4.3.1"
 revm = { version = "19.6.0", features = ["std", "memory_limit"] }
-foundry-evm = { path = "../foundry/crates/evm/evm" }
 foundry-fork-db = "0.12"
 eyre = "0.6.8"
 alloy = { version = "0.12.5", features = ["full"] }

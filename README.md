@@ -25,10 +25,9 @@ A high-performance gas estimation service for Ethereum transactions written in R
 1. Clone the repository:
 
 ```bash
-git clone --recurse-submodules https://github.com/giaki3003/gas-estimator.git
+git clone https://github.com/giaki3003/gas-estimator.git
 cd gas-estimator
 ```
-Make sure you clone with `--recurse-submodules` to pull in the Foundry submodule.
 
 2. Create a `.env` file from the template:
 
