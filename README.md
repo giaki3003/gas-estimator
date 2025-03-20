@@ -17,7 +17,7 @@ A high-performance gas estimation service for Ethereum transactions written in R
 
 ## Prerequisites
 
-- Rust (1.60+)
+- Rust (1.85+)
 - Access to an Ethereum node or service provider (Infura, Alchemy, etc.)
 
 ## Setup
@@ -25,9 +25,10 @@ A high-performance gas estimation service for Ethereum transactions written in R
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/giaki3003/eth-gas-estimator.git
+git clone --recurse-submodules https://github.com/giaki3003/eth-gas-estimator.git
 cd eth-gas-estimator
 ```
+Make sure you clone with `--recurse-submodules` to pull in the Foundry submodule.
 
 2. Create a `.env` file from the template:
 
